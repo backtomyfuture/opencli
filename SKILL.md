@@ -13,14 +13,16 @@ tags: [cli, browser, web, mcp, playwright, bilibili, zhihu, twitter, github, v2e
 ## Install & Run
 
 ```bash
-cd ~/code/opencli
-npm install
+# npm global install (recommended)
+npm install -g @jackwener/opencli
+opencli <command>
 
-# Run via source
+# Or from source
+cd ~/code/opencli && npm install
 npx tsx src/main.ts <command>
 
-# Or build first
-npm run build && node dist/main.js <command>
+# Update to latest
+npm update -g @jackwener/opencli
 ```
 
 ## Prerequisites
