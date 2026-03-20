@@ -152,6 +152,7 @@ export function runCli(BUILTIN_CLIS: string, USER_CLIS: string): void {
     program.command(ext.name)
       .description(`(External) ${ext.description || ext.name}`)
       .allowUnknownOption()
+      .allowExcessArguments()
       .action(() => {
         // Retrieve args passed to the external CLI
         // Commander consumes standard args before the action, so we must slice process.argv directly.
@@ -257,6 +258,25 @@ export function runCli(BUILTIN_CLIS: string, USER_CLIS: string): void {
       }
     });
   }
+
+  program.on('command:*', (operands: string[]) => {
+    const binary = operands[0];
+    if (isBinaryInstalled(binary)) {
+      console.log(chalk.cyan(`🔹 Auto-discovered local CLI '${binary}'. Registering...`));
+      registerExternalCli(binary);
+      // Execute it
+      const extIndex = process.argv.indexOf(binary);
+      const args = process.argv.slice(extIndex + 1);
+      executeExternalCli(binary, args).catch(err => {
+        console.error(chalk.red(`Error: ${err.message}`));
+        process.exitCode = 1;
+      });
+    } else {
+      console.error(chalk.red(`error: unknown command '${binary}'`));
+      program.outputHelp();
+      process.exitCode = 1;
+    }
+  });
 
   program.parse();
 }
