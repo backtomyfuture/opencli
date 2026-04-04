@@ -1,0 +1,80 @@
+import { cli, Strategy } from '../../registry.js';
+import type { IPage } from '../../types.js';
+import {
+  GEMINI_DOMAIN,
+  clickGeminiConversationByTitle,
+  exportGeminiDeepResearchReport,
+  getGeminiPageState,
+  parseGeminiConversationUrl,
+  parseGeminiTitleMatchMode,
+  resolveGeminiConversationForQuery,
+  waitForGeminiTranscript,
+  getGeminiConversationList,
+} from './utils.js';
+
+export const deepResearchResultCommand = cli({
+  site: 'gemini',
+  name: 'deep-research-result',
+  description: 'Export Deep Research report URL from a Gemini conversation',
+  domain: GEMINI_DOMAIN,
+  strategy: Strategy.COOKIE,
+  browser: true,
+  navigateBefore: false,
+  defaultFormat: 'plain',
+  args: [
+    { name: 'query', positional: true, required: false, help: 'Conversation title or URL (optional; defaults to latest conversation)' },
+    { name: 'match', required: false, default: 'contains', choices: ['contains', 'exact'], help: 'Match mode' },
+    { name: 'timeout', type: 'int', required: false, default: 120, help: 'Max seconds to wait for Docs export (default: 120)' },
+  ],
+  columns: ['response'],
+  func: async (page: IPage, kwargs: any) => {
+    const query = String(kwargs.query ?? '').trim();
+    const matchMode = parseGeminiTitleMatchMode(kwargs.match);
+    const timeoutRaw = Number.parseInt(String(kwargs.timeout ?? ''), 10);
+    const timeoutSeconds = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 120;
+    if (!matchMode) {
+      return [{ response: 'Invalid match mode. Use contains or exact.' }];
+    }
+
+    const state = await getGeminiPageState(page);
+    if (state.isSignedIn === false) {
+      return [{ response: 'Not signed in to Gemini.' }];
+    }
+
+    const conversationUrl = parseGeminiConversationUrl(query);
+    if (conversationUrl) {
+      await page.goto(conversationUrl, { waitUntil: 'load', settleMs: 2500 });
+      await page.wait(1);
+      await waitForGeminiTranscript(page);
+      const exported = await exportGeminiDeepResearchReport(page, timeoutSeconds);
+      if (exported.url) {
+        return [{ response: exported.url }];
+      }
+      return [{ response: 'No Docs URL found. Please check Share & Export -> Export to Docs in Gemini UI.' }];
+    }
+
+    const conversations = await getGeminiConversationList(page);
+    const picked = resolveGeminiConversationForQuery(conversations, query, matchMode);
+
+    if (picked?.Url) {
+      await page.goto(picked.Url, { waitUntil: 'load', settleMs: 2500 });
+      await page.wait(1);
+      await waitForGeminiTranscript(page);
+    } else if (query) {
+      if (matchMode === 'exact') {
+        return [{ response: `No conversation matched: ${query}` }];
+      }
+      const clicked = await clickGeminiConversationByTitle(page, query);
+      if (!clicked) {
+        return [{ response: `No conversation matched: ${query}` }];
+      }
+      await waitForGeminiTranscript(page);
+    }
+
+    const exported = await exportGeminiDeepResearchReport(page, timeoutSeconds);
+    if (exported.url) {
+      return [{ response: exported.url }];
+    }
+    return [{ response: 'No Docs URL found. Please check Share & Export -> Export to Docs in Gemini UI.' }];
+  },
+});
