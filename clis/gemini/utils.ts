@@ -70,8 +70,8 @@ const GEMINI_RESPONSE_NOISE_PATTERNS = [
   /Opens in a new window/gi,
 ];
 const GEMINI_TRANSCRIPT_CHROME_MARKERS = ['gemini', '我的内容', '对话', 'google terms', 'google privacy policy'];
-const GEMINI_DEEP_RESEARCH_IN_PROGRESS_PATTERN = /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|generating research plan|gathering sources|creating report|planning research|正在研究|研究中|调研中|生成研究计划|搜集资料|请稍候|稍候|请等待/i;
-const GEMINI_DEEP_RESEARCH_WAITING_FOR_START_PATTERN = /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generate(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i;
+const GEMINI_DEEP_RESEARCH_IN_PROGRESS_PATTERN = /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|gathering sources|creating report|正在研究|研究中|调研中|搜集资料|请稍候|稍候|请等待/i;
+const GEMINI_DEEP_RESEARCH_WAITING_FOR_START_PATTERN = /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generat(?:e|ing)(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i;
 const GEMINI_DEEP_RESEARCH_COMPLETED_PATTERN = /\bresearch(?:\s+is)?\s+complete(?:d)?\b|\b(?:completed\s+(?:deep\s+)?research|(?:deep\s+)?research\s+completed|report\s+completed|completed\s+report)\b|已完成|研究完成|完成了研究|报告已完成/i;
 
 const GEMINI_COMPOSER_SELECTORS = [
@@ -991,6 +991,72 @@ function clickGeminiConfirmButtonScript(labels: string[]): string {
   `;
 }
 
+function findGeminiConfirmButtonScript(labels: string[]): string {
+  const labelsJson = JSON.stringify(labels);
+  return `
+    ((targetLabels) => {
+      const isDisabled = (el) => {
+        if (!(el instanceof HTMLElement)) return true;
+        if ('disabled' in el && el.disabled) return true;
+        if (el.hasAttribute('disabled')) return true;
+        const ariaDisabled = (el.getAttribute('aria-disabled') || '').toLowerCase();
+        return ariaDisabled === 'true';
+      };
+
+      const isVisible = (el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.hidden || el.closest('[hidden]')) return false;
+        const ariaHidden = el.getAttribute('aria-hidden');
+        if (ariaHidden && ariaHidden.toLowerCase() === 'true') return false;
+        if (el.closest('[aria-hidden="true"]')) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (Number(style.opacity) === 0) return false;
+        if (style.pointerEvents === 'none') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+
+      const isInteractable = (el) => isVisible(el) && !isDisabled(el);
+
+      const normalized = Array.isArray(targetLabels)
+        ? targetLabels.map((label) => String(label || '').trim()).filter((label) => label)
+        : [];
+      const lowered = normalized.map((label) => label.toLowerCase());
+      if (lowered.length === 0) return '';
+
+      const dialogRoots = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).filter(isVisible);
+      const mainRoot = document.querySelector('main');
+      const primaryRoots = [...dialogRoots, mainRoot].filter(Boolean).filter(isVisible);
+      const rootGroups = primaryRoots.length > 0 ? [primaryRoots, [document]] : [[document]];
+      const seen = new Set();
+
+      for (const roots of rootGroups) {
+        for (const root of roots) {
+          const candidates = Array.from(root.querySelectorAll('button, [role="button"]'));
+          for (const node of candidates) {
+            if (seen.has(node)) continue;
+            seen.add(node);
+            if (!isInteractable(node)) continue;
+            const text = (node.textContent || '').trim().toLowerCase();
+            const aria = (node.getAttribute('aria-label') || '').trim().toLowerCase();
+            if (!text && !aria) continue;
+            const combined = \`\${text} \${aria}\`.trim();
+            for (let index = 0; index < lowered.length; index += 1) {
+              const label = lowered[index];
+              if (label && combined.includes(label)) {
+                return normalized[index];
+              }
+            }
+          }
+        }
+      }
+
+      return '';
+    })(${labelsJson})
+  `;
+}
+
 function getGeminiConversationListScript(): string {
   return `
     (() => {
@@ -1153,6 +1219,30 @@ export async function waitForGeminiConfirmButton(
     await page.wait(index === 0 ? 0.5 : pollIntervalSeconds);
     const matched = await page.evaluate(clickGeminiConfirmButtonScript(labels)) as string;
     if (typeof matched === 'string' && matched) return matched;
+  }
+
+  return '';
+}
+
+export async function findGeminiConfirmButton(page: IPage, labels: string[]): Promise<string> {
+  await ensureGeminiPage(page);
+  const matched = await page.evaluate(findGeminiConfirmButtonScript(labels)) as string;
+  return typeof matched === 'string' ? matched : '';
+}
+
+export async function waitForGeminiVisibleConfirmButton(
+  page: IPage,
+  labels: string[],
+  timeoutSeconds: number,
+): Promise<string> {
+  await ensureGeminiPage(page);
+  const pollIntervalSeconds = 1;
+  const maxPolls = Math.max(1, Math.ceil(timeoutSeconds / pollIntervalSeconds));
+
+  for (let index = 0; index < maxPolls; index += 1) {
+    await page.wait(index === 0 ? 0.5 : pollIntervalSeconds);
+    const matched = await findGeminiConfirmButton(page, labels);
+    if (matched) return matched;
   }
 
   return '';

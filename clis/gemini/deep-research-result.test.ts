@@ -28,7 +28,8 @@ vi.mock('./utils.js', () => ({
   getGeminiConversationList: mockGetGeminiConversationList,
   getGeminiPageState: mockGetGeminiPageState,
   getLatestGeminiAssistantResponse: mockGetLatestGeminiAssistantResponse,
-  isDeepResearchInProgressText: (value: unknown) => /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|generating research plan|gathering sources|creating report|planning research|正在研究|研究中|调研中|生成研究计划|搜集资料|请稍候|稍候|请等待/i.test(String(value ?? '')),
+  isDeepResearchInProgressText: (value: unknown) => /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|gathering sources|creating report|正在研究|研究中|调研中|搜集资料|请稍候|稍候|请等待/i.test(String(value ?? '')),
+  isDeepResearchWaitingForStartText: (value: unknown) => /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generat(?:e|ing)(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i.test(String(value ?? '')),
   isDeepResearchCompletedText: (value: unknown) => /\bresearch(?:\s+is)?\s+complete(?:d)?\b|\b(?:completed\s+(?:deep\s+)?research|(?:deep\s+)?research\s+completed|report\s+completed|completed\s+report)\b|已完成|研究完成|完成了研究|报告已完成/i.test(String(value ?? '')),
   readGeminiSnapshot: mockReadGeminiSnapshot,
   parseGeminiConversationUrl: (value: unknown) => {

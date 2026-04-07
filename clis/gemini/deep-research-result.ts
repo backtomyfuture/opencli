@@ -14,6 +14,7 @@ import {
   getGeminiConversationList,
   isDeepResearchCompletedText,
   isDeepResearchInProgressText,
+  isDeepResearchWaitingForStartText,
 } from './utils.js';
 
 const DEEP_RESEARCH_WAITING_MESSAGE = 'Deep Research is still running. Please wait and retry later.';
@@ -39,8 +40,11 @@ async function resolveDeepResearchExportResponse(page: IPage, timeoutSeconds: nu
     .filter(Boolean)
     .join('\n');
   const completedSignal = statusText ? isDeepResearchCompletedText(statusText) : false;
+  const activeSignal = statusText
+    ? (isDeepResearchInProgressText(statusText) || isDeepResearchWaitingForStartText(statusText))
+    : false;
 
-  if (statusText && isDeepResearchInProgressText(statusText) && !completedSignal) {
+  if (statusText && activeSignal && !completedSignal) {
     return DEEP_RESEARCH_WAITING_MESSAGE;
   }
 

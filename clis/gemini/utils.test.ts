@@ -93,9 +93,9 @@ describe('deep research status predicates', () => {
     expect(isDeepResearchWaitingForStartText('Research in progress.')).toBe(false);
   });
 
-  it('documents overlap behavior between waiting and in-progress predicates', () => {
+  it('treats research-plan generation as waiting-for-start, not in-progress', () => {
     const overlap = 'Generating research plan. Try again without deep research.';
-    expect(isDeepResearchInProgressText(overlap)).toBe(true);
+    expect(isDeepResearchInProgressText(overlap)).toBe(false);
     expect(isDeepResearchWaitingForStartText(overlap)).toBe(true);
   });
 

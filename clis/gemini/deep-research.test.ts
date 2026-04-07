@@ -9,6 +9,8 @@ const {
   mockStartNewGeminiChat,
   mockWaitForGeminiSubmission,
   mockWaitForGeminiConfirmButton,
+  mockWaitForGeminiVisibleConfirmButton,
+  mockFindGeminiConfirmButton,
   mockGetLatestGeminiAssistantResponse,
 } = vi.hoisted(() => ({
   mockGetCurrentGeminiUrl: vi.fn<() => Promise<string>>(),
@@ -18,6 +20,8 @@ const {
   mockStartNewGeminiChat: vi.fn<() => Promise<void>>(),
   mockWaitForGeminiSubmission: vi.fn<() => Promise<any>>(),
   mockWaitForGeminiConfirmButton: vi.fn<() => Promise<string>>(),
+  mockWaitForGeminiVisibleConfirmButton: vi.fn<() => Promise<string>>(),
+  mockFindGeminiConfirmButton: vi.fn<() => Promise<string>>(),
   mockGetLatestGeminiAssistantResponse: vi.fn<() => Promise<string>>(),
 }));
 
@@ -48,9 +52,10 @@ vi.mock('./utils.js', () => ({
     const label = String(value ?? '').trim();
     return label ? [label] : fallback;
   },
-  isDeepResearchInProgressText: (text: string) => /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|正在研究|研究中/i.test(text),
-  isDeepResearchWaitingForStartText: (text: string) => /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generate(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i.test(text),
+  isDeepResearchInProgressText: (text: string) => /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|gathering sources|creating report|正在研究|研究中|调研中|搜集资料|请稍候|稍候|请等待/i.test(text),
+  isDeepResearchWaitingForStartText: (text: string) => /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generat(?:e|ing)(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i.test(text),
   getCurrentGeminiUrl: mockGetCurrentGeminiUrl,
+  findGeminiConfirmButton: mockFindGeminiConfirmButton,
   getLatestGeminiAssistantResponse: mockGetLatestGeminiAssistantResponse,
   readGeminiSnapshot: mockReadGeminiSnapshot,
   selectGeminiTool: mockSelectGeminiTool,
@@ -58,6 +63,7 @@ vi.mock('./utils.js', () => ({
   startNewGeminiChat: mockStartNewGeminiChat,
   waitForGeminiSubmission: mockWaitForGeminiSubmission,
   waitForGeminiConfirmButton: mockWaitForGeminiConfirmButton,
+  waitForGeminiVisibleConfirmButton: mockWaitForGeminiVisibleConfirmButton,
 }));
 
 import { deepResearchCommand } from './deep-research.js';
@@ -85,6 +91,8 @@ describe('gemini/deep-research', () => {
       reason: 'user_turn',
     });
     mockWaitForGeminiConfirmButton.mockResolvedValue('Start research');
+    mockWaitForGeminiVisibleConfirmButton.mockResolvedValue('');
+    mockFindGeminiConfirmButton.mockResolvedValue('');
     mockGetLatestGeminiAssistantResponse.mockResolvedValue('Researching websites now');
   });
 
@@ -279,6 +287,26 @@ describe('gemini/deep-research', () => {
     expect(mockWaitForGeminiConfirmButton).toHaveBeenCalledTimes(2);
     expect(mockGetLatestGeminiAssistantResponse).toHaveBeenCalledTimes(2);
     expect(result).toEqual([{ status: 'started', url: 'https://gemini.google.com/app/xyz124' }]);
+  });
+
+  it('returns waiting-for-start when confirm button is still visible after matched confirm', async () => {
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('Generating research plan now.');
+    mockFindGeminiConfirmButton.mockResolvedValue('Start research');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic', timeout: '20' });
+
+    expect(mockWaitForGeminiConfirmButton).toHaveBeenCalledTimes(2);
+    expect(result).toEqual([{ status: 'waiting-for-start', url: 'https://gemini.google.com/app/chat' }]);
+  });
+
+  it('returns waiting-for-start when confirm button appears shortly after status check', async () => {
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('Researching websites now');
+    mockFindGeminiConfirmButton.mockResolvedValue('');
+    mockWaitForGeminiVisibleConfirmButton.mockResolvedValue('Start research');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic', timeout: '20' });
+
+    expect(result).toEqual([{ status: 'waiting-for-start', url: 'https://gemini.google.com/app/chat' }]);
   });
 
   it('uses custom tool/confirm labels when provided', async () => {

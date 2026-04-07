@@ -5,6 +5,7 @@ import {
   GEMINI_DEEP_RESEARCH_DEFAULT_TOOL_LABELS,
   GEMINI_APP_URL,
   GEMINI_DOMAIN,
+  findGeminiConfirmButton,
   getCurrentGeminiUrl,
   isDeepResearchInProgressText,
   isDeepResearchWaitingForStartText,
@@ -17,6 +18,7 @@ import {
   startNewGeminiChat,
   waitForGeminiSubmission,
   waitForGeminiConfirmButton,
+  waitForGeminiVisibleConfirmButton,
 } from './utils.js';
 
 function isGeminiRootAppUrl(url: string): boolean {
@@ -53,6 +55,10 @@ export const deepResearchCommand = cli({
 
     const toolLabels = resolveGeminiLabels(kwargs.tool, GEMINI_DEEP_RESEARCH_DEFAULT_TOOL_LABELS);
     const confirmLabels = resolveGeminiLabels(kwargs.confirm, GEMINI_DEEP_RESEARCH_DEFAULT_CONFIRM_LABELS);
+    const fallbackConfirmLabels = Array.from(new Set([
+      ...confirmLabels,
+      ...GEMINI_DEEP_RESEARCH_DEFAULT_CONFIRM_LABELS,
+    ]));
 
     const toolMatched = await selectGeminiTool(page, toolLabels);
     if (!toolMatched) {
@@ -93,13 +99,11 @@ export const deepResearchCommand = cli({
       let response = await getLatestGeminiAssistantResponse(page);
       let inProgress = isDeepResearchInProgressText(response);
       let waiting = isDeepResearchWaitingForStartText(response);
+      let visibleConfirm = await findGeminiConfirmButton(page, fallbackConfirmLabels);
+      waiting = waiting || !!visibleConfirm;
 
       // Some UIs render the plan card first; click confirm one more time without resending prompt.
-      if (!inProgress && waiting) {
-        const fallbackConfirmLabels = Array.from(new Set([
-          ...confirmLabels,
-          ...GEMINI_DEEP_RESEARCH_DEFAULT_CONFIRM_LABELS,
-        ]));
+      if (waiting) {
         const confirmedFallback = await waitForGeminiConfirmButton(page, fallbackConfirmLabels, Math.min(timeout, 8));
         confirmMatched = confirmMatched || !!confirmedFallback;
         // Refresh state after waiting regardless of label match; UI can transition meanwhile.
@@ -107,6 +111,13 @@ export const deepResearchCommand = cli({
         response = await getLatestGeminiAssistantResponse(page);
         inProgress = isDeepResearchInProgressText(response);
         waiting = isDeepResearchWaitingForStartText(response);
+        visibleConfirm = await findGeminiConfirmButton(page, fallbackConfirmLabels);
+        waiting = waiting || !!visibleConfirm;
+      }
+
+      if (!waiting && confirmMatched) {
+        const delayedVisibleConfirm = await waitForGeminiVisibleConfirmButton(page, fallbackConfirmLabels, Math.min(timeout, 4));
+        waiting = waiting || !!delayedVisibleConfirm;
       }
 
       waiting = waiting || (confirmMatched && !inProgress);
