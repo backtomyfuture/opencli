@@ -48,6 +48,8 @@ vi.mock('./utils.js', () => ({
     const label = String(value ?? '').trim();
     return label ? [label] : fallback;
   },
+  isDeepResearchInProgressText: (text: string) => /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|正在研究|研究中/i.test(text),
+  isDeepResearchWaitingForStartText: (text: string) => /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generate(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i.test(text),
   getCurrentGeminiUrl: mockGetCurrentGeminiUrl,
   getLatestGeminiAssistantResponse: mockGetLatestGeminiAssistantResponse,
   readGeminiSnapshot: mockReadGeminiSnapshot,
@@ -83,7 +85,7 @@ describe('gemini/deep-research', () => {
       reason: 'user_turn',
     });
     mockWaitForGeminiConfirmButton.mockResolvedValue('Start research');
-    mockGetLatestGeminiAssistantResponse.mockResolvedValue('');
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('Researching websites now');
   });
 
   it('starts a new chat by default, then sends prompt and confirms deep research', async () => {
@@ -148,24 +150,57 @@ describe('gemini/deep-research', () => {
     expect(result).toEqual([{ status: 'confirm-not-found', url: 'https://gemini.google.com/app/chat' }]);
   });
 
-  it('returns started when confirm is missing but research appears to be running', async () => {
+  it('returns confirm-not-found when confirm is missing even if research appears to be running', async () => {
     mockWaitForGeminiConfirmButton.mockResolvedValue('');
     mockGetCurrentGeminiUrl.mockResolvedValue('https://gemini.google.com/app/abc123');
     mockGetLatestGeminiAssistantResponse.mockResolvedValue('Researching websites now');
 
     const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
 
-    expect(result).toEqual([{ status: 'started', url: 'https://gemini.google.com/app/abc123' }]);
+    expect(result).toEqual([{ status: 'confirm-not-found', url: 'https://gemini.google.com/app/abc123' }]);
   });
 
   it('does not treat conversation url alone as started when confirm is missing', async () => {
     mockWaitForGeminiConfirmButton.mockResolvedValue('');
     mockGetCurrentGeminiUrl.mockResolvedValue('https://gemini.google.com/app/abc999');
-    mockGetLatestGeminiAssistantResponse.mockResolvedValue('I drafted a plan. Start research');
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('I drafted a plan.');
 
     const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
 
     expect(result).toEqual([{ status: 'confirm-not-found', url: 'https://gemini.google.com/app/abc999' }]);
+  });
+
+  it('returns waiting-for-start when url changed but assistant still asks to start research', async () => {
+    mockGetCurrentGeminiUrl.mockResolvedValue('https://gemini.google.com/app/url-changed');
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('I drafted a plan. Start research');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
+
+    expect(result).toEqual([{ status: 'waiting-for-start', url: 'https://gemini.google.com/app/url-changed' }]);
+  });
+
+  it('returns waiting-for-start when confirm matched but no in-progress signal exists', async () => {
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('I drafted a plan.');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
+
+    expect(result).toEqual([{ status: 'waiting-for-start', url: 'https://gemini.google.com/app/chat' }]);
+  });
+
+  it('returns started when confirm matched and in-progress signal exists', async () => {
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('Research in progress and gathering sources.');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
+
+    expect(result).toEqual([{ status: 'started', url: 'https://gemini.google.com/app/chat' }]);
+  });
+
+  it('returns waiting-for-start when waiting and in-progress signals both exist', async () => {
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('Research in progress. Start research to continue.');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic' });
+
+    expect(result).toEqual([{ status: 'waiting-for-start', url: 'https://gemini.google.com/app/chat' }]);
   });
 
   it('retries once when stuck on root app URL and starts successfully on second confirm', async () => {
@@ -194,7 +229,7 @@ describe('gemini/deep-research', () => {
   it('does not resend prompt during root-url retry to avoid duplicate chats', async () => {
     mockWaitForGeminiConfirmButton.mockResolvedValueOnce('Start research').mockResolvedValueOnce('');
     mockGetCurrentGeminiUrl.mockResolvedValueOnce('https://gemini.google.com/app').mockResolvedValueOnce('https://gemini.google.com/app');
-    mockGetLatestGeminiAssistantResponse.mockResolvedValue('');
+    mockGetLatestGeminiAssistantResponse.mockResolvedValue('I drafted a plan.');
 
     const result = await deepResearchCommand.func!(page, { prompt: 'research this topic', timeout: '20' });
 
@@ -226,6 +261,24 @@ describe('gemini/deep-research', () => {
     );
     expect(mockSendGeminiMessage).toHaveBeenCalledTimes(1);
     expect(result).toEqual([{ status: 'started', url: 'https://gemini.google.com/app/xyz123' }]);
+  });
+
+  it('refreshes status after fallback wait even when fallback confirm label is not matched', async () => {
+    mockWaitForGeminiConfirmButton
+      .mockResolvedValueOnce('Start research')
+      .mockResolvedValueOnce('');
+    mockGetCurrentGeminiUrl
+      .mockResolvedValueOnce('https://gemini.google.com/app/xyz124')
+      .mockResolvedValueOnce('https://gemini.google.com/app/xyz124');
+    mockGetLatestGeminiAssistantResponse
+      .mockResolvedValueOnce('I drafted a plan. Start research')
+      .mockResolvedValueOnce('Researching websites now');
+
+    const result = await deepResearchCommand.func!(page, { prompt: 'research this topic', timeout: '20' });
+
+    expect(mockWaitForGeminiConfirmButton).toHaveBeenCalledTimes(2);
+    expect(mockGetLatestGeminiAssistantResponse).toHaveBeenCalledTimes(2);
+    expect(result).toEqual([{ status: 'started', url: 'https://gemini.google.com/app/xyz124' }]);
   });
 
   it('uses custom tool/confirm labels when provided', async () => {

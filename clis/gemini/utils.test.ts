@@ -4,6 +4,9 @@ import type { GeminiTurn } from './utils.js';
 import {
   __test__,
   collectGeminiTranscriptAdditions,
+  isDeepResearchCompletedText,
+  isDeepResearchInProgressText,
+  isDeepResearchWaitingForStartText,
   pickGeminiDeepResearchExportUrl,
   sanitizeGeminiResponseText,
   sendGeminiMessage,
@@ -74,6 +77,33 @@ describe('collectGeminiTranscriptAdditions', () => {
     const before = ['baseline'];
     const current = ['baseline', '关于“请只回复：OK”，这里是解释。'];
     expect(collectGeminiTranscriptAdditions(before, current, prompt)).toBe('关于“请只回复：OK”，这里是解释。');
+  });
+});
+
+describe('deep research status predicates', () => {
+  it('detects in-progress research text', () => {
+    expect(isDeepResearchInProgressText('Working on your research and gathering sources now.')).toBe(true);
+    expect(isDeepResearchInProgressText('当前正在研究，请稍候。')).toBe(true);
+    expect(isDeepResearchInProgressText('Research complete.')).toBe(false);
+  });
+
+  it('detects waiting-for-start text', () => {
+    expect(isDeepResearchWaitingForStartText('Start deep research to continue.')).toBe(true);
+    expect(isDeepResearchWaitingForStartText('请点击开始研究。')).toBe(true);
+    expect(isDeepResearchWaitingForStartText('Research in progress.')).toBe(false);
+  });
+
+  it('documents overlap behavior between waiting and in-progress predicates', () => {
+    const overlap = 'Generating research plan. Try again without deep research.';
+    expect(isDeepResearchInProgressText(overlap)).toBe(true);
+    expect(isDeepResearchWaitingForStartText(overlap)).toBe(true);
+  });
+
+  it('detects completed research text', () => {
+    expect(isDeepResearchCompletedText('Research complete.')).toBe(true);
+    expect(isDeepResearchCompletedText('报告已完成')).toBe(true);
+    expect(isDeepResearchCompletedText('Generating research plan.')).toBe(false);
+    expect(isDeepResearchCompletedText('The report is not completed yet.')).toBe(false);
   });
 });
 

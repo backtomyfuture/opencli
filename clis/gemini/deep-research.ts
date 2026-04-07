@@ -6,6 +6,8 @@ import {
   GEMINI_APP_URL,
   GEMINI_DOMAIN,
   getCurrentGeminiUrl,
+  isDeepResearchInProgressText,
+  isDeepResearchWaitingForStartText,
   getLatestGeminiAssistantResponse,
   parseGeminiPositiveInt,
   readGeminiSnapshot,
@@ -24,12 +26,6 @@ function isGeminiRootAppUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-function parseDeepResearchProgress(text: string): { isResearching: boolean; waitingForStart: boolean } {
-  const isResearching = /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|正在研究|研究中/i.test(text);
-  const waitingForStart = /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generate(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i.test(text);
-  return { isResearching, waitingForStart };
 }
 
 export const deepResearchCommand = cli({
@@ -80,10 +76,8 @@ export const deepResearchCommand = cli({
     }
 
     const confirmed = await waitForGeminiConfirmButton(page, confirmLabels, timeout);
+    let confirmMatched = !!confirmed;
     let url = await getCurrentGeminiUrl(page);
-    if (confirmed && !isGeminiRootAppUrl(url)) {
-      return [{ status: 'started', url }];
-    }
 
     // false-positive confirm click can happen on generic buttons while still at /app root.
     {
@@ -92,30 +86,34 @@ export const deepResearchCommand = cli({
         await selectGeminiTool(page, toolLabels);
         // Avoid resending prompt here: it can create a duplicate conversation thread.
         const confirmedRetry = await waitForGeminiConfirmButton(page, confirmLabels, timeout);
+        confirmMatched = !!confirmedRetry;
         url = await getCurrentGeminiUrl(page);
-        if (confirmedRetry && !isGeminiRootAppUrl(url)) {
-          return [{ status: 'started', url }];
-        }
       }
 
       let response = await getLatestGeminiAssistantResponse(page);
-      let { isResearching, waitingForStart } = parseDeepResearchProgress(response);
+      let inProgress = isDeepResearchInProgressText(response);
+      let waiting = isDeepResearchWaitingForStartText(response);
 
       // Some UIs render the plan card first; click confirm one more time without resending prompt.
-      if (!isResearching && waitingForStart) {
+      if (!inProgress && waiting) {
         const fallbackConfirmLabels = Array.from(new Set([
           ...confirmLabels,
           ...GEMINI_DEEP_RESEARCH_DEFAULT_CONFIRM_LABELS,
         ]));
         const confirmedFallback = await waitForGeminiConfirmButton(page, fallbackConfirmLabels, Math.min(timeout, 8));
-        if (confirmedFallback) {
-          url = await getCurrentGeminiUrl(page);
-          response = await getLatestGeminiAssistantResponse(page);
-          ({ isResearching, waitingForStart } = parseDeepResearchProgress(response));
-        }
+        confirmMatched = confirmMatched || !!confirmedFallback;
+        // Refresh state after waiting regardless of label match; UI can transition meanwhile.
+        url = await getCurrentGeminiUrl(page);
+        response = await getLatestGeminiAssistantResponse(page);
+        inProgress = isDeepResearchInProgressText(response);
+        waiting = isDeepResearchWaitingForStartText(response);
       }
 
-      if (isResearching && !waitingForStart) {
+      waiting = waiting || (confirmMatched && !inProgress);
+      if (waiting) {
+        return [{ status: 'waiting-for-start', url }];
+      }
+      if (confirmMatched && inProgress && !waiting) {
         return [{ status: 'started', url }];
       }
       return [{ status: 'confirm-not-found', url }];

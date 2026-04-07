@@ -12,19 +12,13 @@ import {
   resolveGeminiConversationForQuery,
   waitForGeminiTranscript,
   getGeminiConversationList,
+  isDeepResearchCompletedText,
+  isDeepResearchInProgressText,
 } from './utils.js';
 
 const DEEP_RESEARCH_WAITING_MESSAGE = 'Deep Research is still running. Please wait and retry later.';
 const DEEP_RESEARCH_NO_DOCS_MESSAGE = 'No Docs URL found. Please check Share & Export -> Export to Docs in Gemini UI.';
 const DEEP_RESEARCH_PENDING_MESSAGE = 'Deep Research may still be running or preparing export. Please wait and retry later.';
-
-function isDeepResearchInProgress(text: string): boolean {
-  return /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|generating research plan|gathering sources|creating report|planning research|正在研究|研究中|调研中|生成研究计划|搜集资料|请稍候|稍候|请等待/i.test(text);
-}
-
-function isDeepResearchCompleted(text: string): boolean {
-  return /\bcompleted\b|research complete|completed research|report completed|已完成|研究完成|完成了研究|报告已完成/i.test(text);
-}
 
 async function resolveDeepResearchExportResponse(page: IPage, timeoutSeconds: number): Promise<string> {
   const exported = await exportGeminiDeepResearchReport(page, timeoutSeconds);
@@ -44,12 +38,13 @@ async function resolveDeepResearchExportResponse(page: IPage, timeoutSeconds: nu
     .map((value) => String(value ?? '').trim())
     .filter(Boolean)
     .join('\n');
+  const completedSignal = statusText ? isDeepResearchCompletedText(statusText) : false;
 
-  if (statusText && isDeepResearchInProgress(statusText) && !isDeepResearchCompleted(statusText)) {
+  if (statusText && isDeepResearchInProgressText(statusText) && !completedSignal) {
     return DEEP_RESEARCH_WAITING_MESSAGE;
   }
 
-  if (statusText && isDeepResearchCompleted(statusText)) {
+  if (statusText && completedSignal) {
     return DEEP_RESEARCH_NO_DOCS_MESSAGE;
   }
 

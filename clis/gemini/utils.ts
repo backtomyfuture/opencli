@@ -70,6 +70,9 @@ const GEMINI_RESPONSE_NOISE_PATTERNS = [
   /Opens in a new window/gi,
 ];
 const GEMINI_TRANSCRIPT_CHROME_MARKERS = ['gemini', '我的内容', '对话', 'google terms', 'google privacy policy'];
+const GEMINI_DEEP_RESEARCH_IN_PROGRESS_PATTERN = /\bresearching(?:\s+websites?)?\b|research in progress|working on your research|generating research plan|gathering sources|creating report|planning research|正在研究|研究中|调研中|生成研究计划|搜集资料|请稍候|稍候|请等待/i;
+const GEMINI_DEEP_RESEARCH_WAITING_FOR_START_PATTERN = /\bstart(?:\s+deep)?\s+research\b|begin\s+research|generate(?:\s+deep)?\s+research\s+plan|开始研究|开始深度研究|开始调研|生成研究计划|生成调研计划|try again without deep research/i;
+const GEMINI_DEEP_RESEARCH_COMPLETED_PATTERN = /\bresearch(?:\s+is)?\s+complete(?:d)?\b|\b(?:completed\s+(?:deep\s+)?research|(?:deep\s+)?research\s+completed|report\s+completed|completed\s+report)\b|已完成|研究完成|完成了研究|报告已完成/i;
 
 const GEMINI_COMPOSER_SELECTORS = [
   '.ql-editor[contenteditable="true"]',
@@ -127,6 +130,18 @@ function buildGeminiComposerLocatorScript(): string {
 export function resolveGeminiLabels(value: unknown, fallback: string[]): string[] {
   const label = String(value ?? '').trim();
   return label ? [label] : fallback;
+}
+
+export function isDeepResearchInProgressText(text: string): boolean {
+  return GEMINI_DEEP_RESEARCH_IN_PROGRESS_PATTERN.test(text);
+}
+
+export function isDeepResearchWaitingForStartText(text: string): boolean {
+  return GEMINI_DEEP_RESEARCH_WAITING_FOR_START_PATTERN.test(text);
+}
+
+export function isDeepResearchCompletedText(text: string): boolean {
+  return GEMINI_DEEP_RESEARCH_COMPLETED_PATTERN.test(text);
 }
 
 export function parseGeminiPositiveInt(value: unknown, fallback: number): number {
